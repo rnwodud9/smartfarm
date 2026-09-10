@@ -1,6 +1,4 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
+<html lang="ko"><head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>스마트팜 모니터링 대시보드</title>
@@ -126,7 +124,7 @@
 
     <div class="container">
         <h1>스마트팜 모니터링 대시보드</h1>
-        <div class="status" id="status">불러오는 중…</div>
+        <div class="status error" id="status">config.js 에 SUPABASE_URL / SUPABASE_ANON_KEY 를 설정하세요.</div>
 
         <div class="mode-switch">
             <button id="mode-live" class="active" onclick="switchMode('live')">실시간</button>
@@ -134,7 +132,7 @@
         </div>
 
         <div class="chart-container">
-            <canvas id="sensorChart"></canvas>
+            <canvas id="sensorChart" width="860" height="340" style="display: block; box-sizing: border-box; height: 340px; width: 860px;"></canvas>
         </div>
 
         <div class="cards-grid">
@@ -203,7 +201,7 @@
         };
 
         const statusEl = document.getElementById('status');
-        let supabase = null;
+        let supabaseClient = null;
         let myChart = null;
         let currentSensor = 'ph';
         let currentMode = 'live';
@@ -230,14 +228,14 @@
                 setStatus('config.js 에 SUPABASE_URL / SUPABASE_ANON_KEY 를 설정하세요.', true);
                 return false;
             }
-            supabase = window.supabase.createClient(url, key);
+            supabaseClient = window.supabase.createClient(url, key);
             return true;
         }
 
         // ---- 그래프 데이터 (모드별) ----
         async function loadChartData() {
             const m = MODES[currentMode];
-            let q = supabase
+            let q = supabaseClient
                 .from(m.table)
                 .select(m.select)
                 .gte(m.tkey, new Date(Date.now() - m.sinceMs).toISOString())
@@ -272,7 +270,7 @@
         // ---- 카드 값: 항상 원본 최신 1행 ----
         async function loadLatest() {
             const raw = MODES.live;
-            let q = supabase
+            let q = supabaseClient
                 .from(raw.table)
                 .select(raw.select)
                 .order('created_at', { ascending: false })
@@ -361,5 +359,7 @@
             startPolling();
         };
     </script>
-</body>
-</html>
+
+
+<script async="" src="/.netlify/scripts/hud?variant=owner-private" data-nf-variant="owner-private" data-netlify-site-id="fa0efcee-58a2-42f5-9f68-3063a991a304" data-app-host="app.netlify.com"></script>
+</body></html>
