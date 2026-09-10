@@ -1,4 +1,19 @@
-<html lang="ko"><head>
+<!DOCTYPE html>
+<!--
+  스마트팜 모니터링 대시보드
+  ── 버전: 2026-09-10-kst2 ─────────────────────────────
+  이전(형 rnwodud9/smartfarm 배포본)과 구분점:
+    1. 측정 시각을 항상 한국시간(Asia/Seoul)으로 표시  → kstParts()
+    2. <!DOCTYPE html> 유지 (배포본은 브라우저 저장으로 유실 → quirks 모드)
+    3. 배포본에 섞여든 /.netlify/scripts/hud 스크립트, 박제된 에러 문구 제거
+    4. Supabase 클라이언트 변수명 supabaseClient (형 변경분 반영)
+    5. 폴링 간격 완화: 실시간 15s→30s, 최근7일 60s→5분 (Supabase egress 절약)
+    6. 안 보이는 탭은 폴링 정지 (document.hidden) + 복귀 시 즉시 갱신
+  권장: sensor_data(created_at) 인덱스 추가 (supabase/enable-public-read.sql 참고)
+  기준 저장소: rnwodud9/smartfarm   배포: https://smurffarm.netlify.app
+-->
+<html lang="ko">
+<head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>스마트팜 모니터링 대시보드</title>
@@ -124,7 +139,7 @@
 
     <div class="container">
         <h1>스마트팜 모니터링 대시보드</h1>
-        <div class="status error" id="status">config.js 에 SUPABASE_URL / SUPABASE_ANON_KEY 를 설정하세요.</div>
+        <div class="status" id="status">불러오는 중…</div>
 
         <div class="mode-switch">
             <button id="mode-live" class="active" onclick="switchMode('live')">실시간</button>
@@ -132,7 +147,7 @@
         </div>
 
         <div class="chart-container">
-            <canvas id="sensorChart" width="860" height="340" style="display: block; box-sizing: border-box; height: 340px; width: 860px;"></canvas>
+            <canvas id="sensorChart"></canvas>
         </div>
 
         <div class="cards-grid">
@@ -153,6 +168,10 @@
                 <div class="value" id="val-humidity">--</div>
             </div>
         </div>
+
+        <div style="text-align:center;font-size:11px;color:#b0b8bd;margin-top:16px;">
+            smartfarm dashboard · v2026-09-10-kst2 · 시각 KST · 실시간 30s / 최근7일 5분 갱신
+        </div>
     </div>
 
     <!-- Supabase 접속 정보 -->
@@ -172,9 +191,8 @@
                 col: { ph: 'PH', ec: 'EC', temp: '온도', humidity: '습도' },
                 sinceMs: 30 * 60 * 1000,   // 최근 30분
                 cap: 800,
-                refreshMs: 15000,
-                fmt: (iso) => new Date(iso).toLocaleTimeString('ko-KR',
-                        { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                refreshMs: 30000,          // 30초 (요청/egress 절약)
+                fmt: (iso) => { const p = kstParts(iso); return `${p.hour}:${p.minute}:${p.second}`; },
             },
             week: {
                 btn: 'mode-week',
@@ -184,12 +202,8 @@
                 col: { ph: 'ph', ec: 'ec', temp: 'temp', humidity: 'humidity' },
                 sinceMs: 7 * 24 * 60 * 60 * 1000,   // 최근 7일
                 cap: 3000,
-                refreshMs: 60000,
-                fmt: (iso) => {
-                    const d = new Date(iso);
-                    const p = (n) => String(n).padStart(2, '0');
-                    return `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
-                },
+                refreshMs: 300000,         // 5분 (버킷 간격과 동일 — 더 자주 할 이유 없음)
+                fmt: (iso) => { const p = kstParts(iso); return `${+p.month}/${+p.day} ${p.hour}:${p.minute}`; },
             },
         };
 
@@ -219,6 +233,18 @@
 
         function toNum(v) {
             return (v === null || v === undefined || v === '') ? null : Number(v);
+        }
+
+        // 시각 표시는 항상 한국시간(KST) 고정 — 보는 기기의 시간대와 무관
+        function kstParts(t) {
+            const o = {};
+            for (const p of new Intl.DateTimeFormat('en-GB', {
+                timeZone: 'Asia/Seoul',
+                year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+            }).formatToParts(new Date(t))) o[p.type] = p.value;
+            if (o.hour === '24') o.hour = '00';
+            return o;
         }
 
         function initClient() {
@@ -263,7 +289,7 @@
             if (!data || data.length === 0) {
                 setStatus(modeLabel + ' · 표시할 데이터 없음');
             } else {
-                setStatus(modeLabel + ' · ' + data.length + '개 지점 · 갱신 ' + nowHm());
+                setStatus(modeLabel + ' · ' + data.length + '개 지점 · ' + nowHm() + ' KST 갱신');
             }
         }
 
@@ -293,7 +319,8 @@
         }
 
         function nowHm() {
-            return new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+            const p = kstParts(Date.now());
+            return `${p.hour}:${p.minute}`;
         }
 
         function drawChart(sensorKey) {
@@ -346,9 +373,18 @@
             startPolling();   // 새 모드로 즉시 조회 + 주기 재설정
         }
 
+        function refreshNow() {
+            if (!supabaseClient) return;
+            loadChartData();
+            loadLatest();
+        }
+
         function startPolling() {
             if (timer) clearInterval(timer);
-            const tick = () => { loadChartData(); loadLatest(); };
+            const tick = () => {
+                if (document.hidden) return;   // 안 보이는 탭은 요청 안 함 (egress 절약)
+                refreshNow();
+            };
             tick();
             timer = setInterval(tick, MODES[currentMode].refreshMs);
         }
@@ -357,9 +393,12 @@
             drawChart('ph');            // 빈 차트 먼저
             if (!initClient()) return;
             startPolling();
+            // 탭이 다시 보이면 즉시 한 번 갱신
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden) refreshNow();
+            });
         };
     </script>
+</body>
+</html>
 
-
-<script async="" src="/.netlify/scripts/hud?variant=owner-private" data-nf-variant="owner-private" data-netlify-site-id="fa0efcee-58a2-42f5-9f68-3063a991a304" data-app-host="app.netlify.com"></script>
-</body></html>
