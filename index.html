@@ -1,19 +1,34 @@
 <!DOCTYPE html>
 <!--
   스마트팜 모니터링 대시보드
-  ── 버전: 2026-09-10-kst2 ─────────────────────────────
-  이전(형 rnwodud9/smartfarm 배포본)과 구분점:
-    1. 측정 시각을 항상 한국시간(Asia/Seoul)으로 표시  → kstParts()
-    2. <!DOCTYPE html> 유지 (배포본은 브라우저 저장으로 유실 → quirks 모드)
-    3. 배포본에 섞여든 /.netlify/scripts/hud 스크립트, 박제된 에러 문구 제거
-    4. Supabase 클라이언트 변수명 supabaseClient (형 변경분 반영)
-    5. 폴링 간격 완화: 실시간 15s→30s, 최근7일 60s→5분 (Supabase egress 절약)
-    6. 안 보이는 탭은 폴링 정지 (document.hidden) + 복귀 시 즉시 갱신
-  권장: sensor_data(created_at) 인덱스 추가 (supabase/enable-public-read.sql 참고)
+  ── 버전: 2026-09-17 ─────────────────────────────────
+  주요 변경 이력:
+    - 4개 탭 전부: 카테고리(순서나열) 축 → 실제 timestamp 기반 축으로 교체
+      · 실시간: 눈금 5분 고정 간격, 점은 원래 수신 시각 그대로
+      · 최근 7일/2개월: sensor_hourly 테이블이 실제 DB에 없어(retention.sql 미실행)
+        sensor_5min을 읽어 클라이언트에서 1시간 평균으로 집계. 눈금은 하루/7일 간격
+      · 전체 기간: sensor_daily 테이블도 없어 마찬가지로 sensor_5min → 하루 평균 집계.
+        눈금 간격은 실제 데이터 기간에 맞춰 자동 조절(pickTickUnit)
+      · 전 모드 spanGaps:false + 빈 구간 null 삽입 → 데이터 끊기면 선도 끊김
+      · ⚠ retention.sql을 Supabase에서 실행하면(계정 소유자 권한 필요) 원래 설계대로
+        전용 롤업 테이블을 쓰도록 되돌리는 게 장기적으로 맞음 — 지금 방식은 데이터가
+        몇 달~년 단위로 쌓이면 sensor_5min 조회량이 커져 느려질 수 있음
+    - 측정 시각을 항상 한국시간(Asia/Seoul)으로 표시  → kstParts()
+    - <!DOCTYPE html> 유지 (브라우저 저장본은 유실 → quirks 모드)
+    - 배포본에 섞여든 /.netlify/scripts/hud 스크립트, 박제된 에러 문구 제거
+    - Supabase 클라이언트 변수명 supabaseClient
+    - 폴링 완화: 실시간 30s / 최근7일 5분 / 최근2개월 30분 / 전체기간 1시간
+    - 안 보이는 탭은 폴링 정지 (document.hidden) + 복귀 시 즉시 갱신
+    - 4단 줌 사다리: 실시간(raw,5초) → 최근7일(5분) → 최근2개월(시간별)
+      → 전체기간(일별). 저장 계층(raw/5min/hourly/daily)과 화면 탭 1:1 대응.
+    - 그래프 포인트에 마우스 올리면 툴팁: 날짜(요일)+시각+정확한 수치
+  필요 SQL: supabase/enable-public-read.sql (정책+인덱스),
+            supabase/retention.sql (sensor_5min/hourly/daily 롤업 + raw 30일 보존, pg_cron)
   기준 저장소: rnwodud9/smartfarm   배포: https://smurffarm.netlify.app
 -->
+
 <html lang="ko">
-<head>
+  <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>스마트팜 모니터링 대시보드</title>
@@ -139,38 +154,40 @@
 
     <div class="container">
         <h1>스마트팜 모니터링 대시보드</h1>
-        <div class="status" id="status">불러오는 중…</div>
+        <div class="status" id="status">실시간(최근 30분) · 표시할 데이터 없음</div>
 
         <div class="mode-switch">
             <button id="mode-live" class="active" onclick="switchMode('live')">실시간</button>
             <button id="mode-week" onclick="switchMode('week')">최근 7일</button>
+            <button id="mode-hourly" onclick="switchMode('hourly')">최근 2개월</button>
+            <button id="mode-all" onclick="switchMode('all')">전체 기간</button>
         </div>
 
         <div class="chart-container">
-            <canvas id="sensorChart"></canvas>
+            <canvas id="sensorChart" style="box-sizing: border-box; display: block; height: 340px; width: 478.6px;" width="431" height="306"></canvas>
         </div>
 
         <div class="cards-grid">
             <div class="card active" onclick="switchSensor('ph')" id="card-ph">
                 <h3>pH</h3>
-                <div class="value" id="val-ph">--</div>
+                <div class="value" id="val-ph">6.2</div>
             </div>
             <div class="card" onclick="switchSensor('ec')" id="card-ec">
                 <h3>EC (mS/cm)</h3>
-                <div class="value" id="val-ec">--</div>
+                <div class="value" id="val-ec">1.4</div>
             </div>
             <div class="card" onclick="switchSensor('temp')" id="card-temp">
                 <h3>온도 (°C)</h3>
-                <div class="value" id="val-temp">--</div>
+                <div class="value" id="val-temp">25.8</div>
             </div>
             <div class="card" onclick="switchSensor('humidity')" id="card-humidity">
                 <h3>습도 (%)</h3>
-                <div class="value" id="val-humidity">--</div>
+                <div class="value" id="val-humidity">63.3</div>
             </div>
         </div>
 
         <div style="text-align:center;font-size:11px;color:#b0b8bd;margin-top:16px;">
-            smartfarm dashboard · v2026-09-10-kst2 · 시각 KST · 실시간 30s / 최근7일 5분 갱신
+            smartfarm dashboard · v2026-09-17 · 시각 KST · 그래프 위 4단계(실시간/7일/2개월/전체) · 값 위 마우스 올리면 상세
         </div>
     </div>
 
@@ -184,6 +201,8 @@
         const MODES = {
             live: {
                 btn: 'mode-live',
+                title: '실시간(최근 30분)',
+                unit: '실시간',
                 table: window.SUPABASE_TABLE_RAW || 'sensor_data',
                 // sensor_data 는 컬럼명이 "PH" "EC" + 한글 "온도" "습도" → 따옴표 필수
                 select: '"PH","EC","온도","습도",created_at',
@@ -192,26 +211,69 @@
                 sinceMs: 30 * 60 * 1000,   // 최근 30분
                 cap: 800,
                 refreshMs: 30000,          // 30초 (요청/egress 절약)
-                fmt: (iso) => { const p = kstParts(iso); return `${p.hour}:${p.minute}:${p.second}`; },
+                tickUnitMs: 5 * 60 * 1000, // 눈금 5분 간격
+                gapThresholdMs: 60 * 1000, // 1분 넘게 비면 선 끊기
+                tickFmt: (t) => { const p = kstParts(t); return `${p.hour}:${p.minute}`; },
+                fmt: (t) => { const p = kstParts(t); return `${p.hour}:${p.minute}:${p.second}`; },
+                fullFmt: (t) => { const p = kstParts(t); return `${kstFullDate(t)} ${p.hour}:${p.minute}:${p.second}`; },
             },
             week: {
                 btn: 'mode-week',
+                title: '최근 7일 · 1시간 평균',
+                unit: '1시간 평균',
+                // sensor_hourly/sensor_daily 테이블이 실제 DB에 없어서(retention.sql 미실행)
+                // sensor_5min을 그대로 읽어 클라이언트에서 원하는 간격으로 집계한다.
                 table: window.SUPABASE_TABLE_5MIN || 'sensor_5min',
                 select: 'ph,ec,temp,humidity,bucket',
                 tkey: 'bucket',
-                col: { ph: 'ph', ec: 'ec', temp: 'temp', humidity: 'humidity' },
                 sinceMs: 7 * 24 * 60 * 60 * 1000,   // 최근 7일
-                cap: 3000,
-                refreshMs: 300000,         // 5분 (버킷 간격과 동일 — 더 자주 할 이유 없음)
-                fmt: (iso) => { const p = kstParts(iso); return `${+p.month}/${+p.day} ${p.hour}:${p.minute}`; },
+                cap: 2200,                 // 7일 * 5분버킷(288/일) 여유분 포함
+                refreshMs: 300000,         // 5분 (원본 버킷 갱신 주기와 동일)
+                aggregateUnitMs: 60 * 60 * 1000,    // 5분 데이터를 1시간 평균으로 묶음
+                tickUnitMs: 24 * 60 * 60 * 1000,    // 눈금 하루 간격
+                gapThresholdMs: 1.5 * 60 * 60 * 1000,  // 1시간반 넘게 비면 선 끊기
+                tickFmt: (t) => { const p = kstParts(t); return `${+p.month}/${+p.day}`; },
+                fullFmt: (t) => { const p = kstParts(t); return `${kstFullDate(t)} ${p.hour}:${p.minute}`; },
+            },
+            hourly: {
+                btn: 'mode-hourly',
+                title: '최근 2개월 · 1시간 평균',
+                unit: '1시간 평균',
+                table: window.SUPABASE_TABLE_5MIN || 'sensor_5min',
+                select: 'ph,ec,temp,humidity,bucket',
+                tkey: 'bucket',
+                sinceMs: 60 * 24 * 60 * 60 * 1000,   // 최근 60일
+                cap: 20000,                // 60일 * 5분버킷(288/일) 여유분 포함
+                refreshMs: 1800000,        // 30분
+                aggregateUnitMs: 60 * 60 * 1000,     // 1시간 평균
+                tickUnitMs: 7 * 24 * 60 * 60 * 1000, // 눈금 7일 간격
+                gapThresholdMs: 3 * 60 * 60 * 1000,  // 3시간 넘게 비면 선 끊기
+                tickFmt: (t) => { const p = kstParts(t); return `${+p.month}/${+p.day}`; },
+                fullFmt: (t) => { const p = kstParts(t); return `${kstFullDate(t)} ${p.hour}:${p.minute}`; },
+            },
+            all: {
+                btn: 'mode-all',
+                title: '전체 기간 · 일별 평균',
+                unit: '일별 평균',
+                table: window.SUPABASE_TABLE_5MIN || 'sensor_5min',
+                select: 'ph,ec,temp,humidity,bucket',
+                tkey: 'bucket',
+                sinceMs: 20 * 365 * 24 * 60 * 60 * 1000,   // 사실상 전체(20년) — 쌓인 만큼 다 보여줌
+                cap: 50000,
+                refreshMs: 3600000,        // 1시간
+                aggregateUnitMs: 24 * 60 * 60 * 1000,   // 하루 평균
+                dataRangeAxis: true,       // 눈금 범위를 실제 데이터 기간에 맞춤 (sinceMs 무의미)
+                gapThresholdMs: 1.5 * 24 * 60 * 60 * 1000,  // 하루반 넘게 비면 선 끊기
+                tickFmt: (t) => { const p = kstParts(t); return `${p.year.slice(2)}/${+p.month}/${+p.day}`; },
+                fullFmt: (t) => kstFullDate(t),
             },
         };
 
         const META = {
-            ph:       { label: 'pH',        color: '#e74c3c' },
-            ec:       { label: 'EC (mS/cm)', color: '#e67e22' },
-            temp:     { label: '온도 (°C)',  color: '#3498db' },
-            humidity: { label: '습도 (%)',   color: '#2ecc71' },
+            ph:       { label: 'pH',        short: 'pH',  color: '#e74c3c', unit: '' },
+            ec:       { label: 'EC (mS/cm)', short: 'EC',  color: '#e67e22', unit: ' mS/cm' },
+            temp:     { label: '온도 (°C)',  short: '온도', color: '#3498db', unit: '°C' },
+            humidity: { label: '습도 (%)',   short: '습도', color: '#2ecc71', unit: '%' },
         };
 
         const statusEl = document.getElementById('status');
@@ -219,12 +281,8 @@
         let myChart = null;
         let currentSensor = 'ph';
         let currentMode = 'live';
-        let series = emptySeries();
+        let series = { ph: [], ec: [], temp: [], humidity: [] };
         let timer = null;
-
-        function emptySeries() {
-            return { ph: [], ec: [], temp: [], humidity: [], times: [] };
-        }
 
         function setStatus(msg, isError) {
             statusEl.textContent = msg;
@@ -245,6 +303,91 @@
             }).formatToParts(new Date(t))) o[p.type] = p.value;
             if (o.hour === '24') o.hour = '00';
             return o;
+        }
+
+        // 툴팁용 전체 날짜(+요일). t 는 ISO 문자열/date-only 문자열/ms 숫자 다 됨.
+        function kstWeekday(t) {
+            return new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', weekday: 'short' }).format(new Date(t));
+        }
+        function kstFullDate(t) {
+            const p = kstParts(t);
+            return `${p.year}-${p.month}-${p.day}(${kstWeekday(t)})`;
+        }
+
+        // ---- timeAxis 모드 전용: 눈금을 KST 기준 정시/자정에 맞춰 정렬 ----
+        const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+        function alignTick(t, unitMs) {
+            if (unitMs >= 24 * 60 * 60 * 1000) {
+                const shifted = t + KST_OFFSET_MS;
+                return Math.floor(shifted / unitMs) * unitMs - KST_OFFSET_MS;
+            }
+            return Math.floor(t / unitMs) * unitMs;
+        }
+
+        function generateTicks(minT, maxT, unitMs) {
+            const ticks = [];
+            let t = alignTick(minT, unitMs);
+            if (t < minT) t += unitMs;
+            for (; t <= maxT; t += unitMs) ticks.push({ value: t });
+            if (!ticks.length) ticks.push({ value: alignTick(maxT, unitMs) });
+            return ticks;
+        }
+
+        // 5분 버킷 데이터를 unitMs 간격(1시간/1일 등)으로 묶어 평균낸다
+        // (sensor_hourly/sensor_daily 테이블이 없을 때 sensor_5min 을 대체 소스로 씀)
+        function aggregateBuckets(rows, tkey, unitMs) {
+            const buckets = new Map();   // bucketTs(ms) -> { ph:[sum,n], ec:[sum,n], ... }
+            const keys = ['ph', 'ec', 'temp', 'humidity'];
+            for (const r of rows) {
+                const t = new Date(r[tkey]).getTime();
+                const bucketTs = alignTick(t, unitMs);
+                if (!buckets.has(bucketTs)) {
+                    buckets.set(bucketTs, { ph: [0, 0], ec: [0, 0], temp: [0, 0], humidity: [0, 0] });
+                }
+                const b = buckets.get(bucketTs);
+                for (const key of keys) {
+                    const v = toNum(r[key]);
+                    if (v !== null && !Number.isNaN(v)) { b[key][0] += v; b[key][1] += 1; }
+                }
+            }
+            const decimals = { ph: 2, ec: 2, temp: 1, humidity: 1 };
+            return Array.from(buckets.keys()).sort((a, b) => a - b).map((bucketTs) => {
+                const b = buckets.get(bucketTs);
+                const out = { bucketTs };
+                for (const key of keys) {
+                    out[key] = b[key][1] > 0
+                        ? Math.round((b[key][0] / b[key][1]) * 10 ** decimals[key]) / 10 ** decimals[key]
+                        : null;
+                }
+                return out;
+            });
+        }
+
+        // "전체 기간" 탭처럼 고정 눈금 간격이 없을 때, 실제 데이터 범위에 맞춰 보기 좋은 간격을 고른다
+        function pickTickUnit(rangeMs) {
+            const DAY_MS = 24 * 60 * 60 * 1000;
+            const candidates = [1, 2, 3, 5, 7, 14, 30, 60, 90, 180, 365].map((d) => d * DAY_MS);
+            for (const c of candidates) {
+                if (rangeMs / c <= 8) return c;
+            }
+            const years = Math.ceil(rangeMs / (365 * DAY_MS) / 8);
+            return years * 365 * DAY_MS;
+        }
+
+        // 데이터가 비는 구간은 null 포인트를 끼워 넣어 선을 끊는다 (spanGaps: false 와 세트)
+        function buildTimeSeriesPoints(rows, tkey, valueKey, gapThresholdMs) {
+            const pts = [];
+            let prevT = null;
+            for (const r of rows) {
+                const t = new Date(r[tkey]).getTime();
+                if (prevT !== null && (t - prevT) > gapThresholdMs) {
+                    pts.push({ x: prevT + 1, y: null });
+                }
+                pts.push({ x: t, y: toNum(r[valueKey]) });
+                prevT = t;
+            }
+            return pts;
         }
 
         function initClient() {
@@ -275,17 +418,16 @@
                 return;
             }
 
-            series = emptySeries();
-            for (const r of (data || [])) {
-                series.times.push(m.fmt(r[m.tkey]));
-                series.ph.push(toNum(r[m.col.ph]));
-                series.ec.push(toNum(r[m.col.ec]));
-                series.temp.push(toNum(r[m.col.temp]));
-                series.humidity.push(toNum(r[m.col.humidity]));
+            series = { ph: [], ec: [], temp: [], humidity: [] };
+            const rows = m.aggregateUnitMs ? aggregateBuckets(data || [], m.tkey, m.aggregateUnitMs) : (data || []);
+            const rowsTkey = m.aggregateUnitMs ? 'bucketTs' : m.tkey;
+            for (const key of ['ph', 'ec', 'temp', 'humidity']) {
+                const valueKey = m.aggregateUnitMs ? key : m.col[key];
+                series[key] = buildTimeSeriesPoints(rows, rowsTkey, valueKey, m.gapThresholdMs);
             }
             drawChart(currentSensor);
 
-            const modeLabel = currentMode === 'live' ? '실시간(최근 30분)' : '최근 7일 · 5분 간격';
+            const modeLabel = m.title;
             if (!data || data.length === 0) {
                 setStatus(modeLabel + ' · 표시할 데이터 없음');
             } else {
@@ -324,36 +466,75 @@
         }
 
         function drawChart(sensorKey) {
+            const m = MODES[currentMode];
             const meta = META[sensorKey];
             const ctx = document.getElementById('sensorChart').getContext('2d');
             if (myChart) myChart.destroy();
 
+            const points = series[sensorKey];
+            const dataset = {
+                label: meta.label + ' · ' + m.unit,
+                data: points,
+                borderColor: meta.color,
+                backgroundColor: meta.color + '22',
+                borderWidth: 2.5,
+                pointRadius: points.length > 60 ? 0 : 3,
+                fill: true,
+                tension: 0.3,
+                spanGaps: false,   // 데이터 없는 구간은 선으로 잇지 않는다
+            };
+
+            // 실제 timestamp 기반 축: 눈금은 고정/가변 간격으로, 점은 원래 시각 그대로
+            let minT, maxT;
+            if (m.dataRangeAxis) {
+                const xs = points.map((p) => p.x);
+                minT = xs.length ? Math.min(...xs) : Date.now() - 24 * 60 * 60 * 1000;
+                maxT = xs.length ? Math.max(...xs) : Date.now();
+            } else {
+                const now = Date.now();
+                minT = alignTick(now - m.sinceMs, m.tickUnitMs);
+                maxT = now;
+            }
+            const tickUnitMs = m.tickUnitMs || pickTickUnit(maxT - minT || 1);
+
             myChart = new Chart(ctx, {
                 type: 'line',
-                data: {
-                    labels: series.times,
-                    datasets: [{
-                        label: meta.label + (currentMode === 'week' ? ' · 5분 평균' : ' · 실시간'),
-                        data: series[sensorKey],
-                        borderColor: meta.color,
-                        backgroundColor: meta.color + '22',
-                        borderWidth: 2.5,
-                        pointRadius: series.times.length > 60 ? 0 : 3,
-                        fill: true,
-                        tension: 0.3,
-                        spanGaps: true,
-                    }]
-                },
+                data: { datasets: [dataset] },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
                     animation: false,
-                    plugins: { legend: { display: true, position: 'top' } },
+                    interaction: { mode: 'nearest', axis: 'x', intersect: false },
+                    plugins: {
+                        legend: { display: true, position: 'top' },
+                        tooltip: {
+                            callbacks: {
+                                title: (items) => items.length ? m.fullFmt(items[0].parsed.x) : '',
+                                label: (item) => {
+                                    const v = item.parsed.y;
+                                    return v === null || v === undefined
+                                        ? meta.short + ': 값 없음'
+                                        : meta.short + ': ' + v + meta.unit;
+                                },
+                            },
+                        },
+                    },
                     scales: {
-                        x: { ticks: { maxTicksLimit: 8, autoSkip: true, maxRotation: 0 } },
-                        y: { beginAtZero: false }
-                    }
-                }
+                        x: {
+                            type: 'linear',
+                            min: minT,
+                            max: maxT,
+                            afterBuildTicks: (scale) => {
+                                scale.ticks = generateTicks(minT, maxT, tickUnitMs);
+                            },
+                            ticks: {
+                                callback: (val) => m.tickFmt(val),
+                                maxRotation: 0,
+                            },
+                        },
+                        y: { beginAtZero: false },
+                    },
+                },
             });
         }
 
@@ -399,6 +580,6 @@
             });
         };
     </script>
-</body>
-</html>
 
+
+</body></html>
