@@ -31,7 +31,7 @@ export function waterReading(value) {
     const height = Math.max(0, tank.heightCm - cm);
     return { cm, height, liters: height / tank.heightCm * tank.capacityL };
 }
-export function seriesFor(rows, key, gap) {
+export function seriesFor(rows, key, gap, from = -Infinity, until = Infinity) {
     const points = [];
     let last = null;
     let interrupted = false;
@@ -41,7 +41,7 @@ export function seriesFor(rows, key, gap) {
         const reading = key === 'water' ? waterReading(raw) : null;
         const y = key === 'water' ? reading?.liters : finite(raw);
         const x = Date.parse(row.time);
-        if (!Number.isFinite(x)) continue;
+        if (!Number.isFinite(x) || x < from || x > until) continue;
         if (y == null) { interrupted = true; continue; }
         if (last !== null && (interrupted || x - last > gap)) points.push({ x: (last + x) / 2, y: null });
         points.push(reading ? { x, y, cm: reading.cm } : { x, y });
@@ -58,16 +58,15 @@ export function axesFor(key, points, mode, now) {
             if (y !== null) { bottom = Math.min(bottom, y); top = Math.max(top, y); }
         }
     }
-    if (!points.length) return { left: now - (mode.range || DAY), right: now, bottom, top };
-    const first = points[0].x, last = points[points.length - 1].x;
-    // A single timestamp needs room for one visible point and one real time label.
-    return { left: first === last ? first - 1 : first, right: first === last ? last + 1 : last, bottom, top };
+    const first = points[0]?.x;
+    const left = first < now ? first : now - (mode.range || DAY);
+    return { left, right: now, bottom, top };
 }
 const tickIntervals = [1000, 5000, 10000, 30000, MINUTE, 5*MINUTE, 15*MINUTE, 30*MINUTE, HOUR, 3*HOUR,
     6*HOUR, 12*HOUR, DAY, 2*DAY, 7*DAY, 14*DAY, 30*DAY, 90*DAY, 180*DAY, 365*DAY];
 export function xTicks(left, right, width) {
     const span = right - left;
-    if (span <= 2) return [{ value: (left + right) / 2 }];
+    if (span <= 2) return [{ value: right }];
     const slots = Math.max(1, Math.min(8, Math.floor(width / 86)));
     const target = span / slots;
     const step = tickIntervals.find(s => s >= target) || Math.ceil(target / (365 * DAY)) * 365 * DAY;
@@ -87,6 +86,7 @@ export function tickLabel(t, span) {
     if (span < DAY) return clock.format(t);
     return span > 365 * DAY ? fullDate.format(t) : date.format(t);
 }
+export const nowLabel = t => '현재 ' + clock.format(t);
 export function timestamp(t, daily = false) {
     return daily ? fullDate.format(t) : fullDate.format(t) + ' ' + clockSeconds.format(t);
 }
