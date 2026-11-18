@@ -1,0 +1,49 @@
+* { box-sizing: border-box; }
+body {
+    margin: 0; padding: 22px 16px; background: #f4f7f6; color: #293f4d;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+}
+.container { max-width: 950px; margin: auto; }
+h1 { margin: 0 0 5px; text-align: center; font-size: clamp(1.45rem, 4vw, 2rem); }
+.status { text-align: center; color: #546976; font-size: .84rem; margin-bottom: 16px; min-height: 1.4em; }
+.status.error { color: #a63927; }
+.mode-switch { display: flex; flex-wrap: wrap; justify-content: center; gap: 7px; margin-bottom: 14px; }
+button { font: inherit; cursor: pointer; }
+.mode-switch button {
+    border: 1px solid #bfcdd5; background: white; color: #435968; font-size: .9rem;
+    font-weight: 600; padding: 8px 17px; border-radius: 24px;
+}
+.mode-switch button[aria-pressed="true"] { background: #247cac; color: #fff; border-color: #247cac; }
+button:focus-visible { outline: 3px solid #155b8e; outline-offset: 3px; }
+.chart-panel, .card { background: white; border-radius: 12px; box-shadow: 0 4px 14px #233b4d0d; }
+.chart-panel { padding: 16px 18px 10px; margin-bottom: 15px; }
+.chart-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; margin-bottom: 10px; }
+h2 { margin: 0; font-size: 1.05rem; }
+.guide { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; color: #365b49; }
+.guide::before { content: ''; width: 18px; height: 9px; background: #dfefe1; border-block: 1px dashed #4f815d; }
+.guide.water { color: #886204; }
+.guide.water::before { background: #fff0c9; border-color: #ab7905; }
+.plot { position: relative; height: 320px; }
+.plot-message {
+    position: absolute; top: 40%; left: 50%; transform: translate(-50%,-50%); margin: 0;
+    padding: 8px 12px; border-radius: 6px; background: #fffffff2; color: #566873;
+    font-size: .86rem; text-align: center; width: max-content; max-width: 90%; pointer-events: none;
+}
+.cards-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.card { border: 2px solid transparent; padding: 14px 6px; color: inherit; display: flex; align-items: center; flex-direction: column; gap: 5px; }
+.card .name { color: #516674; font-size: .85rem; font-weight: 600; }
+.card strong { font-size: 1.45rem; font-variant-numeric: tabular-nums; }
+.card[aria-pressed="true"] { border-color: #2481b5; background: #f0f8fd; }
+.card:hover { border-color: #79a8c4; }
+.tank-detail { font-size: .74rem; color: #506673; }
+.card.warning .tank-detail { color: #a63f15; font-weight: 700; }
+@media(max-width: 640px) {
+    body { padding: 16px 8px; }
+    .mode-switch { gap: 5px; }
+    .mode-switch button { padding: 7px 10px; font-size: .84rem; }
+    .chart-panel { padding: 12px 8px 8px; }
+    .plot { height: 270px; }
+    .cards-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .card:last-child { grid-column: 1 / -1; }
+    .card { padding: 10px; }
+}
