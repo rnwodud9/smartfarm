@@ -24,6 +24,25 @@ export function finite(value) {
     const n = Number(value);
     return Number.isFinite(n) ? n : null;
 }
+// Firmware switched units between the last mS/cm sample (17:07 KST) and
+// the first µS/cm sample (17:13 KST) on 2026-11-12. The 17:10 boundary
+// falls in the upload gap and aligns with the five-minute history buckets.
+const ecUnitChange = Date.parse('2026-11-12T17:10:00+09:00');
+// These two archive buckets span both firmware versions. Their means were
+// recomputed from individual valid raw EC samples before the 30-day expiry.
+const transitionMeans = {
+    hour: { bucket: Date.parse('2026-11-12T17:00:00+09:00'), ec: 240.916639 }, // 613 readings
+    day: { bucket: Date.parse('2026-11-12T00:00:00+09:00'), ec: 1284.586820 }, // 9,393 readings
+};
+export function ecInMicrosiemens(value, time, period) {
+    const ec = finite(value);
+    if (ec === null) return null;
+    const t = Date.parse(time);
+    const transition = transitionMeans[period];
+    if (transition && t === transition.bucket) return transition.ec;
+    return t < ecUnitChange ? ec * 1000 : ec;
+}
+
 export function waterReading(value) {
     const cm = finite(value);
     // Zero is often a timeout. Accept ±2 cm at the empty-tank calibration point.

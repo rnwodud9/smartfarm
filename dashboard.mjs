@@ -1,4 +1,4 @@
-import { MINUTE, modes, sensors, tank, finite, waterReading, seriesFor, axesFor, xTicks, tickLabel, nowLabel, timestamp, fmt } from './sensors.mjs';
+import { MINUTE, modes, sensors, tank, finite, ecInMicrosiemens, waterReading, seriesFor, axesFor, xTicks, tickLabel, nowLabel, timestamp, fmt } from './sensors.mjs';
 
 const rawTable = window.SUPABASE_TABLE_RAW || 'sensor_data';
 const historyTable = 'sensor_history';
@@ -123,7 +123,7 @@ async function periodRows(period, until, signal) {
         const { data, error } = await q.limit(500).abortSignal(signal);
         if (error) throw error;
         if (!data.length) return rows;
-        rows.push(...data);
+        for (const row of data) rows.push({ ...row, ec: ecInMicrosiemens(row.ec, row.time, period.period) });
         last = data[data.length - 1];
     }
 }
