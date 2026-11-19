@@ -1,4 +1,4 @@
-import { MINUTE, modes, sensors, tank, finite, waterReading, seriesFor, axesFor, xTicks, tickLabel, timestamp, fmt } from './sensors.mjs';
+import { MINUTE, modes, sensors, tank, finite, waterReading, seriesFor, axesFor, xTicks, tickLabel, nowLabel, timestamp, fmt } from './sensors.mjs';
 
 const rawTable = window.SUPABASE_TABLE_RAW || 'sensor_data';
 const historyTable = 'sensor_history';
@@ -10,7 +10,6 @@ const guide = document.querySelector('#guide');
 let sensor = 'ph';
 let mode = 'live';
 let records = [];
-let asOf = Date.now();
 let phase = 'loading';
 let chart, client, chartRequest, latestRequest, chartTimer, cardTimer;
 
@@ -44,8 +43,9 @@ function showStatus(text, error = false) {
 }
 function draw() {
     const meta = sensors[sensor], period = modes[mode];
-    const points = seriesFor(records, sensor, period.gap);
-    const bounds = axesFor(sensor, points, period, asOf);
+    const now = Date.now();
+    const points = seriesFor(records, sensor, period.gap, period.range ? now - period.range : -Infinity, now);
+    const bounds = axesFor(sensor, points, period, now);
     const [low, high] = meta.band;
     const dataset = { label: meta.title, data: points, borderColor: meta.color, backgroundColor: meta.color,
         borderWidth: 2, fill: false, tension: 0, spanGaps: false, pointRadius, pointHoverRadius: 4, pointHitRadius: 7 };
@@ -54,7 +54,7 @@ function draw() {
         type: 'linear', min: bounds.left, max: bounds.right, offset: false, bounds: 'data',
         afterBuildTicks(scale) { scale.ticks = xTicks(scale.min, scale.max, scale.width || scale.chart.width); },
         ticks: { autoSkip: false, align: 'inner', maxRotation: 0, minRotation: 0,
-            callback: value => tickLabel(value, bounds.right - bounds.left) },
+            callback: value => value === bounds.right ? nowLabel(now) : tickLabel(value, bounds.right - bounds.left) },
         grid: { color: '#eaf0f2', offset: false },
     };
     const y = {
@@ -136,7 +136,6 @@ async function loadChart() {
         const rows = await periodRows(modes[requestedMode], until, request.signal);
         if (request !== chartRequest || request.signal.aborted || requestedMode !== mode) return;
         records = rows;
-        asOf = until;
         phase = 'ready';
         if (mode === 'live') updateCards([...rows].reverse());
         draw();
@@ -193,8 +192,13 @@ function startPolling() {
     clearInterval(cardTimer);
     latestRequest?.abort();
     refresh();
-    chartTimer = setInterval(() => { if (!document.hidden) loadChart(); }, modes[mode].refresh);
-    if (mode !== 'live') cardTimer = setInterval(() => { if (!document.hidden) loadLatest(); }, modes.live.refresh);
+    if (mode !== 'live') chartTimer = setInterval(() => { if (!document.hidden) loadChart(); }, modes[mode].refresh);
+    cardTimer = setInterval(() => {
+        if (document.hidden) return;
+        draw();
+        if (mode === 'live') loadChart();
+        else loadLatest();
+    }, modes.live.refresh);
 }
 function press(group, attr, value) {
     for (const button of group.querySelectorAll('button')) button.setAttribute('aria-pressed', String(button.dataset[attr] === value));
@@ -211,7 +215,6 @@ document.querySelector('.mode-switch').addEventListener('click', e => {
     if (!key || key === mode || !client) return;
     mode = key;
     records = [];
-    asOf = Date.now();
     phase = 'loading';
     press(e.currentTarget, 'mode', mode);
     draw();
