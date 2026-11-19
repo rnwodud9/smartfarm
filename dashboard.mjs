@@ -11,6 +11,51 @@ let sensor = 'ph';
 let mode = 'live';
 let records = [];
 let phase = 'loading';
+let adjustments = [], adjustmentOffset = 0, adjustmentLoaded = false, adjustmentRequest;
+const adjustmentStatus = document.querySelector('#adjustment-status');
+const adjustmentKey = key => key === 'temp' ? 'temperature' : key;
+const adjustmentLabels = {ph:'pH', ec:'EC', temperature:'기온', humidity:'습도'};
+function paintAdjustmentStatus() {
+    const clock = Date.now() + adjustmentOffset;
+    const active = adjustments.find(item => item.start <= clock && clock < item.end);
+    adjustmentStatus.dataset.active = String(!!active);
+    const seconds = active ? Math.ceil((active.end - clock)/1000) : 0;
+    const label = active ? active.sensors.map(k=>adjustmentLabels[k]).join('·') + ' 조정 중 · ' +
+        Math.floor(seconds/60) + '분 ' + seconds%60 + '초 남음' : '센서 조정 대기';
+    adjustmentStatus.textContent = adjustmentLoaded ? label : '센서 조정 상태 확인 중…';
+    for (const card of document.querySelectorAll('[data-sensor]')) {
+        card.classList.toggle('adjusting', !!active?.sensors.includes(adjustmentKey(card.dataset.sensor)));
+    }
+}
+async function loadAdjustments() {
+    if (document.hidden) return;
+    const requestedMode = mode;
+    if (adjustmentRequest?.mode === mode) return;
+    adjustmentRequest?.controller.abort();
+    const controller = new AbortController();
+    adjustmentRequest = {mode,controller};
+    try {
+        const from = modes[mode].range ? Math.max(0,Date.now()-modes[mode].range-60000) : 0;
+        const r = await fetch('https://smartfarms.maker2-6ac.workers.dev/api/adjustment?from='+from,
+            {cache:'no-store', signal:controller.signal});
+        if (!r.ok) throw Error();
+        const state = await r.json();
+        if (requestedMode !== mode || controller.signal.aborted) return;
+        const tankChanged=state.tank && Object.keys(tank).some(k=>state.tank[k]!==tank[k]);
+        if(tankChanged && Object.keys(tank).every(k=>Number.isFinite(state.tank[k]))){
+            Object.assign(tank,state.tank);
+            sensors.water.axis=[0,tank.capacityL]; sensors.water.band=[0,tank.lowL];
+            sensors.water.note='물 부족 기준 · '+tank.lowL+' L 이하';
+            if(mode==='live')updateCards([...records].reverse());
+            else loadLatest();
+        }
+        const changed = tankChanged || JSON.stringify(adjustments)!==JSON.stringify(state.intervals);
+        adjustmentOffset = state.now-Date.now(); adjustments = state.intervals; adjustmentLoaded = true;
+        paintAdjustmentStatus();
+        if (changed && chart) draw();
+    } catch { if (!controller.signal.aborted) {adjustmentLoaded=false;paintAdjustmentStatus();} }
+    finally {if(adjustmentRequest?.controller===controller) adjustmentRequest=undefined;}
+}
 let chart, client, chartRequest, latestRequest, chartTimer, cardTimer;
 
 const referenceBand = {
@@ -29,6 +74,12 @@ const referenceBand = {
         ctx.beginPath();
         for (const y of [top, bottom]) { ctx.moveTo(left, y); ctx.lineTo(right, y); }
         ctx.stroke();
+        for (const interval of adjustments) {
+            if (!interval.sensors.includes(adjustmentKey(sensor))) continue;
+            const x1=Math.max(left,scales.x.getPixelForValue(interval.start));
+            const x2=Math.min(right,scales.x.getPixelForValue(Math.min(interval.end,Date.now()+adjustmentOffset)));
+            if (x2>x1) {ctx.fillStyle='rgba(203,134,44,.18)';ctx.fillRect(x1,chartArea.top,x2-x1,chartArea.bottom-chartArea.top);}
+        }
         ctx.restore();
     },
 };
@@ -123,7 +174,7 @@ async function periodRows(period, until, signal) {
         const { data, error } = await q.limit(500).abortSignal(signal);
         if (error) throw error;
         if (!data.length) return rows;
-        for (const row of data) rows.push({ ...row, ec: ecInMicrosiemens(row.ec, row.time, period.period) });
+        for (const row of data) rows.push({ ...row, ph:row.ph != null && row.ph>=0 && row.ph<=14 ? row.ph : null, humidity:row.humidity != null && row.humidity>=0 && row.humidity<=100 ? row.humidity : null, ec: ecInMicrosiemens(row.ec, row.time, period.period) });
         last = data[data.length - 1];
     }
 }
@@ -185,6 +236,7 @@ async function loadLatest() {
 function refresh() {
     if (document.hidden || !client) return;
     loadChart();
+    loadAdjustments();
     if (mode !== 'live') loadLatest();
 }
 function startPolling() {
@@ -230,5 +282,7 @@ window.addEventListener('load', () => {
     });
     draw();
     startPolling();
+    setInterval(loadAdjustments, 5000);
+    setInterval(()=>{if(!document.hidden)paintAdjustmentStatus();},1000);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 });

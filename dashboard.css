@@ -47,3 +47,8 @@ h2 { margin: 0; font-size: 1.05rem; }
     .card:last-child { grid-column: 1 / -1; }
     .card { padding: 10px; }
 }
+
+.adjustment-status{display:flex;justify-content:center;align-items:center;gap:.8rem;flex-wrap:wrap;margin:.25rem 0 .8rem;font-size:.85rem;color:#45625d}
+.adjustment-status a{color:#256449;text-underline-offset:3px}
+#adjustment-status[data-active="true"]{color:#79501e;font-weight:700}
+.card.adjusting .name::after{content:" · 조정 중";color:#85541b}

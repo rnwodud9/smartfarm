@@ -4,7 +4,7 @@ export const DAY = 24 * HOUR;
 const KST_OFFSET = 9 * HOUR;
 
 // The column stores the distance from the sensor to the surface, in cm.
-export const tank = { heightCm: 50, capacityL: 200, lowL: 10 };
+export const tank = { heightCm: 50, capacityL: 200, offsetCm: 0, lowL: 10 };
 export const modes = {
     live:   { title: '실시간 · 최근 30분', range: 30 * MINUTE, gap: MINUTE, refresh: 30_000 },
     week:   { title: '최근 7일 · 5분 평균', period: '5min', range: 7 * DAY, gap: 7.5 * MINUTE, refresh: 5 * MINUTE },
@@ -46,8 +46,8 @@ export function ecInMicrosiemens(value, time, period) {
 export function waterReading(value) {
     const cm = finite(value);
     // Zero is often a timeout. Accept ±2 cm at the empty-tank calibration point.
-    if (cm === null || cm < 2 || cm > tank.heightCm + 2) return null;
-    const height = Math.max(0, tank.heightCm - cm);
+    if (cm === null || cm < 2 || cm > Math.min(400,tank.heightCm + tank.offsetCm + 2)) return null;
+    const height = Math.max(0, Math.min(tank.heightCm,tank.heightCm + tank.offsetCm - cm));
     return { cm, height, liters: height / tank.heightCm * tank.capacityL };
 }
 export function seriesFor(rows, key, gap, from = -Infinity, until = Infinity) {
