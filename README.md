@@ -12,7 +12,7 @@ https://smurffarm.netlify.app · ESP32가 쓰는 원본과 센서별 평균을 �
 
 `sensor_data`는 보드별로 일부 필드만 보내도 된다. `초음파`에는 센서에서 수면까지 거리(cm)를 보내고 측정 실패는 NULL로 보낸다. 높이 50cm, 용량 200L, 단면이 일정한 물통에서 남은 물량은 `(50 − 거리) × 4` L다. 센서 설치 기준은 만수면이며 만수면에 더 가까워질 때 기기의 최소 측정거리도 고려한다. 2cm 미만이나 52cm 초과는 제외하고 빈 통 근처의 50~52cm는 0L로 표시한다. 10L 이하면 물 부족으로 표시한다. 초음파가 없는 예전 기록은 빈 값이다.
 
-pH는 0~14, 습도는 0~100%로 고정한다. EC(µS/cm)는 0~3,000, 기온은 0~40°C에서 시작해 해당 기간의 관측값이 벗어나면 확장한다. 과거 펌웨어의 EC 예제값도 수신된 그대로 유지한다. 상추의 pH 및 EC 범위는 [오클라호마주립대 수경재배 자료](https://extension.okstate.edu/fact-sheets/electrical-conductivity-and-ph-guide-for-hydroponics), 상대습도와 주야 기온 목표는 [코넬대 수경상추 핸드북](https://cea.cals.cornell.edu/files/2019/06/Cornell-CEA-Lettuce-Handbook-.pdf)을 사용한다.
+pH는 0~14, 습도는 0~100%로 고정한다. EC(µS/cm)는 0~3,000, 기온은 0~40°C에서 시작해 해당 기간의 관측값이 벗어나면 확장한다. 2026년 11월 12일 17:10 KST 이전 EC는 화면에서 mS/cm를 µS/cm로 환산한다. 그 시각을 포함하는 시간·일 집계는 개별 측정값을 환산한 뒤 계산한 평균을 표시한다. DB 원본에는 수신 당시 숫자가 남는다. 상추의 pH 및 EC 범위는 [오클라호마주립대 수경재배 자료](https://extension.okstate.edu/fact-sheets/electrical-conductivity-and-ph-guide-for-hydroponics), 상대습도와 주야 기온 목표는 [코넬대 수경상추 핸드북](https://cea.cals.cornell.edu/files/2019/06/Cornell-CEA-Lettuce-Handbook-.pdf)을 사용한다.
 
 ## 운영
 
